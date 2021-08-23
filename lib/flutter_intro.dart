@@ -2,6 +2,7 @@ library flutter_intro;
 
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -51,6 +52,10 @@ class Intro {
   late Size _lastScreenSize;
   final _th = _Throttling(duration: Duration(milliseconds: 500));
 
+  // Used to calculate the height of the past time grid overlay
+  // based on the height of the first row in life grid.
+  int age;
+
   /// The mask color of step page
   final Color maskColor;
 
@@ -85,16 +90,17 @@ class Intro {
 
   /// Create an Intro instance, the parameter [stepCount] is the number of guide pages
   /// [widgetBuilder] is the method of generating the guide page, and returns a [Widget] as the guide page
-  Intro({
-    required this.widgetBuilder,
-    required this.stepCount,
-    this.maskColor = const Color.fromRGBO(0, 0, 0, .6),
-    this.noAnimation = false,
-    this.maskClosable = false,
-    this.borderRadius = const BorderRadius.all(Radius.circular(4)),
-    this.padding = const EdgeInsets.all(8),
-    this.onHighlightWidgetTap,
-  }) : assert(stepCount > 0) {
+  Intro(
+      {required this.widgetBuilder,
+      required this.stepCount,
+      this.maskColor = const Color.fromRGBO(0, 0, 0, .8),
+      this.noAnimation = false,
+      this.maskClosable = false,
+      this.borderRadius = const BorderRadius.all(Radius.circular(4)),
+      this.padding = const EdgeInsets.all(8),
+      this.onHighlightWidgetTap,
+      this.age = 0})
+      : assert(stepCount > 0) {
     _animationDuration =
         noAnimation ? Duration(milliseconds: 0) : Duration(milliseconds: 300);
     for (int i = 0; i < stepCount; i++) {
@@ -110,15 +116,15 @@ class Intro {
   /// [stepIndex] Which step of configuration needs to be modified
   /// [padding] Padding setting
   /// [borderRadius] BorderRadius setting
-  void setStepConfig(
-    int stepIndex, {
-    EdgeInsets? padding,
-    BorderRadiusGeometry? borderRadius,
-  }) {
+  void setStepConfig(int stepIndex,
+      {EdgeInsets? padding,
+      BorderRadiusGeometry? borderRadius,
+      bool? showContent}) {
     assert(stepIndex >= 0 && stepIndex < stepCount);
     _configMap[stepIndex] = {
       'padding': padding,
       'borderRadius': borderRadius,
+      'showContent': showContent
     };
   }
 
@@ -127,19 +133,17 @@ class Intro {
   /// [stepsIndex] Which steps of configuration needs to be modified
   /// [padding] Padding setting
   /// [borderRadius] BorderRadius setting
-  void setStepsConfig(
-    List<int> stepsIndex, {
-    EdgeInsets? padding,
-    BorderRadiusGeometry? borderRadius,
-  }) {
+  void setStepsConfig(List<int> stepsIndex,
+      {EdgeInsets? padding,
+      BorderRadiusGeometry? borderRadius,
+      bool? showContent}) {
     assert(stepsIndex
         .every((stepIndex) => stepIndex >= 0 && stepIndex < stepCount));
     stepsIndex.forEach((index) {
-      setStepConfig(
-        index,
-        padding: padding,
-        borderRadius: borderRadius,
-      );
+      setStepConfig(index,
+          padding: padding,
+          borderRadius: borderRadius,
+          showContent: showContent);
     });
   }
 
@@ -158,18 +162,23 @@ class Intro {
         (currentConfig?.horizontal ?? padding.horizontal);
     _widgetHeight =
         renderBox.size.height + (currentConfig?.vertical ?? padding.vertical);
+
     _widgetOffset = Offset(
       renderBox.localToGlobal(Offset.zero).dx -
           (currentConfig?.left ?? padding.left),
-      renderBox.localToGlobal(Offset.zero).dy -
-          (currentConfig?.top ?? padding.top),
+      _currentStepIndex == 3
+          ? renderBox.localToGlobal(Offset.zero).dy -
+              pastLifeHeight() +
+              _widgetHeight! -
+              (currentConfig?.top ?? padding.top)
+          : (renderBox.localToGlobal(Offset.zero).dy -
+              (currentConfig?.top ?? padding.top)),
     );
   }
 
   Widget _widgetBuilder({
     double? width,
     double? height,
-    BlendMode? backgroundBlendMode,
     required double left,
     required double top,
     double? bottom,
@@ -179,22 +188,29 @@ class Intro {
     VoidCallback? onTap,
   }) {
     final decoration = BoxDecoration(
-      color: Colors.white,
-      backgroundBlendMode: backgroundBlendMode,
-      borderRadius: borderRadiusGeometry,
-    );
+        borderRadius: borderRadiusGeometry,
+
+        //todo: Make border width configurable
+        border: Border.all(
+            color: Colors.white, width: _currentStepIndex == 0 ? 0 : 4));
+
+    final showContent = _configMap[_currentStepIndex]['showContent'] ?? true;
     return AnimatedPositioned(
       duration: _animationDuration,
       child: GestureDetector(
         onTap: onTap,
-        child: AnimatedContainer(
-          padding: padding,
-          decoration: decoration,
-          width: width,
-          height: height,
-          child: child,
-          duration: _animationDuration,
-        ),
+        child: CustomPaint(
+            child: AnimatedContainer(
+              padding: padding,
+              decoration: decoration,
+              width: width,
+              height: height,
+              child: child,
+              duration: _animationDuration,
+            ),
+            painter: showContent
+                ? RoundedSquare(borderRadius as BorderRadius)
+                : null),
       ),
       left: left,
       top: top,
@@ -223,67 +239,67 @@ class Intro {
         return _DelayRenderedWidget(
           removed: _removed,
           childPersist: true,
-          duration: _animationDuration,
-          child: Material(
-            color: Colors.transparent,
-            child: Stack(
-              children: [
-                ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    maskColor,
-                    BlendMode.srcOut,
-                  ),
-                  child: Stack(
-                    children: [
-                      _widgetBuilder(
-                        backgroundBlendMode: BlendMode.dstOut,
-                        left: 0,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                        onTap: maskClosable
-                            ? () {
-                                if (stepCount - 1 == _currentStepIndex) {
-                                  _onFinish();
-                                } else {
-                                  _onNext(context);
-                                }
-                              }
-                            : null,
+          duration: Duration(milliseconds: 0),
+          child: MouseRegion(
+            cursor: maskClosable
+                ? SystemMouseCursors.click
+                : SystemMouseCursors.basic,
+            child: GestureDetector(
+              onTap: () => maskClosable
+                  ? (_currentStepIndex == stepCount - 1
+                      ? _onFinish()
+                      : _onNext(context))
+                  : null,
+              child: Material(
+                color: Colors.transparent,
+                child: Stack(
+                  children: [
+                    BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
+                      child: Stack(
+                        children: [
+                          _widgetBuilder(
+                              width: _widgetWidth,
+                              height: _currentStepIndex == 3
+                                  ? pastLifeHeight()
+                                  : _widgetHeight,
+                              left: _widgetOffset!.dx,
+                              top: _widgetOffset!.dy,
+                              // Skipping through the intro very fast may cause currentStepIndex to out of bounds
+                              // I have tried to fix it, here is just to make the code safer
+                              // https://github.com/tal-tech/flutter_intro/issues/22
+                              borderRadiusGeometry:
+                                  _currentStepIndex < stepCount
+                                      ? _configMap[_currentStepIndex]
+                                              ['borderRadius'] ??
+                                          borderRadius
+                                      : borderRadius,
+                              onTap: () => maskClosable
+                                  ? (_currentStepIndex == stepCount - 1
+                                      ? _onFinish()
+                                      : _onNext(context))
+                                  : null)
+                        ],
                       ),
-                      _widgetBuilder(
-                        width: _widgetWidth,
-                        height: _widgetHeight,
-                        left: _widgetOffset!.dx,
-                        top: _widgetOffset!.dy,
-                        // Skipping through the intro very fast may cause currentStepIndex to out of bounds
-                        // I have tried to fix it, here is just to make the code safer
-                        // https://github.com/tal-tech/flutter_intro/issues/22
-                        borderRadiusGeometry: _currentStepIndex < stepCount
-                            ? _configMap[_currentStepIndex]['borderRadius'] ??
-                                borderRadius
-                            : borderRadius,
-                        onTap: onHighlightWidgetTap != null
-                            ? () {
-                                IntroStatus introStatus = getStatus();
-                                onHighlightWidgetTap!(introStatus);
-                              }
-                            : null,
-                      ),
-                    ],
-                  ),
+                    ),
+                    _DelayRenderedWidget(
+                      duration: _animationDuration,
+                      child: _stepWidget,
+                    ),
+                  ],
                 ),
-                _DelayRenderedWidget(
-                  duration: _animationDuration,
-                  child: _stepWidget,
-                ),
-              ],
+              ),
             ),
           ),
         );
       },
     );
     Overlay.of(context)!.insert(_overlayEntry!);
+  }
+
+  double pastLifeHeight() {
+    EdgeInsets? currentConfig = _configMap[_currentStepIndex]['padding'];
+    return ((_widgetHeight! - currentConfig!.vertical) * age) + _widgetHeight!;
   }
 
   void _onNext(BuildContext context) {
@@ -369,4 +385,19 @@ class Intro {
     );
     return introStatus;
   }
+}
+
+class RoundedSquare extends CustomPainter {
+  BorderRadius radius = BorderRadius.zero;
+
+  RoundedSquare(this.radius);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(radius.toRRect(Offset(0, 0) & size),
+        Paint()..blendMode = BlendMode.xor);
+  }
+
+  @override
+  bool shouldRepaint(RoundedSquare oldDelegate) => false;
 }
