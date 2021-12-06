@@ -83,7 +83,7 @@ class Intro {
   final BorderRadiusGeometry borderRadius;
 
   /// How many steps are there in total
-  final int stepCount;
+  int stepCount;
 
   /// The highlight widget tapped callback
   final void Function(IntroStatus introStatus)? onHighlightWidgetTap;
